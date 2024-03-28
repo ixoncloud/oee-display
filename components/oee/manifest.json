@@ -77,6 +77,68 @@
               "label": "Formula",
               "placeholder": "x / y * 100",
               "description": "You can use various math operators like: *, /, +, -, ^, tan, sin, cos, log, etc. The full list of possible operators can be found here: https://www.npmjs.com/package/expr-eval#expression-syntax. Use this to calculate the Availability based on the various input variables. Leave empty to skip. Must be in decimal representation"
+            },
+            {
+              "key": "stateBasedAvailability",
+              "type": "Group",
+              "label": "State Based Availability",
+              "description": "calculates availability based on the state definitions instead of the formula",
+              "children": [
+                {
+                  "key": "stateMetric",
+                  "type": "RawMetric",
+                  "label": "State Metric",
+                  "required": false
+                },
+                {
+                  "key": "rules",
+                  "label": "State Definitions",
+                  "description": "(undefined states will be classified as operational time)",
+                  "type": "List",
+                  "itemType": {
+                    "key": "state",
+                    "label": "State",
+                    "type": "Group",
+                    "summary": {
+                      "label": "{{name}}: {{value}}, {{stateClassification}}"
+                    },
+                    "children": [
+                      {
+                        "key": "name",
+                        "label": "Name",
+                        "required": true,
+                        "type": "String"
+                      },
+                      {
+                        "key": "value",
+                        "label": "Value",
+                        "required": true,
+                        "type": "String"
+                      },
+                      {
+                        "key": "stateClassification",
+                        "label": "State Classification",
+                        "required": true,
+                        "type": "Selection",
+                        "options": [
+                          {
+                            "value": "operationalTime",
+                            "label": "Operational Time"
+                          },
+                          {
+                            "value": "plannedDowntime",
+                            "label": "Planned Downtime"
+                          },
+                          {
+                            "value": "unplannedDowntime",
+                            "label": "Unplanned Downtime"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              ]
             }
           ]
         },

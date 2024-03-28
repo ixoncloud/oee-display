@@ -5,6 +5,11 @@ export type Rule = {
   colorUsage: string;
 };
 
+export type StateRule = {
+  value: string;
+  stateClassification: string;
+};
+
 function ruleToPredicate(rule: Rule, value: number | string) {
   const threshold = rule.value;
   const type = typeof value;
@@ -58,4 +63,24 @@ export function mapValueToRuleIndex(
   }[]
 ) {
   return rules?.findIndex((item) => ruleToPredicate(item.rule, value));
+}
+
+export function mapValueToStateRule(
+  value: number | string,
+  rules: {
+    state: StateRule;
+  }[]
+) {
+  return rules?.find((item) => stateRuleToPredicate(item.state, value));
+}
+
+// state rules only have a single operator, eq
+function stateRuleToPredicate(rule: StateRule, value: number | string) {
+  const threshold = rule.value;
+  const type = typeof value;
+  if (type !== "string") {
+    return Number(value) === Number(threshold);
+  } else {
+    return String(value).localeCompare(String(threshold)) === 0;
+  }
 }

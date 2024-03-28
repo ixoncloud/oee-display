@@ -12,6 +12,10 @@
 
   import type { Rule } from "./utils/rules";
 
+  import { mapValueToStateRule } from "./utils/rules";
+
+  import { calculateDurationsInMilliseconds } from "./utils/state";
+
   type Variable = {
     name: string;
     metric: ComponentContextAggregatedMetricInput;
@@ -22,7 +26,11 @@
   import { formatPercentage } from "./utils/formatting";
   import { mapMetricInputToQuery } from "./utils/query";
 
+  import { DataService } from "./services/data.service";
+
   export let context: ComponentContext;
+
+  let loading = true;
 
   let loggingDataClient: LoggingDataClient;
   let header: { title: string; subtitle: string };
@@ -30,6 +38,7 @@
   let rootEl: HTMLDivElement;
   let cancelQuery: (() => void) | void | undefined;
   let availability: number | undefined;
+  let availabilityBasedOnState: number | undefined;
   let performance: number | undefined;
   let quality: number | undefined;
   let oee: number | undefined;
@@ -145,19 +154,20 @@
     };
   });
 
-  function onTimeRangeChanged(): void {
+  function onTimeRangeChanged() {
+    loading = true;
     _runChartQuery();
   }
 
-  function _runChartQuery(): void {
+  async function _runChartQuery() {
     if (cancelQuery) {
       cancelQuery();
       cancelQuery = undefined;
     }
-    cancelQuery = _chartQuery();
+    cancelQuery = await _chartQuery();
   }
 
-  function _chartQuery() {
+  async function _chartQuery() {
     const variables = _getVariables();
 
     const queries = variables.map((x: { variable: Variable }) => {
@@ -166,11 +176,71 @@
         limit: 1,
       };
     });
+    console.log(context);
 
-    cancelQuery = loggingDataClient.query(queries, _processResponse);
+    // Wrap the query in a promise
+
+    await new Promise((resolve, reject) => {
+      cancelQuery = loggingDataClient.query(
+        queries,
+        (metrics: LoggingDataMetric[][]) => {
+          _processResponse(metrics);
+          resolve(null); // Resolve the promise if _processResponse completes without errors
+        }
+      );
+    });
+
+    const rawStateData =
+      (await new DataService(context).getAllRawMetrics()) || [];
+    console.log(rawStateData);
+
+    const durations = calculateDurationsInMilliseconds(
+      rawStateData,
+      context.timeRange.to
+    );
+
+    // mapValueToRule
+    const availabilityRules =
+      context.inputs.calculation.availability.stateBasedAvailability.rules;
+
+    console.log("availabilityRules", availabilityRules);
+
+    let operationalTime = 0;
+    let plannedDowntime = 0;
+    let unplannedDowntime = 0;
+
+    // for each key in durations check if it matches a rule, then add its duration to the correct variable
+    for (const key in durations) {
+      const rule = mapValueToStateRule(key, availabilityRules);
+      console.log("rule", rule);
+      if (rule) {
+        if (rule.state.stateClassification === "operationalTime") {
+          operationalTime += durations[key];
+        } else if (rule.state.stateClassification === "plannedDowntime") {
+          plannedDowntime += durations[key];
+        } else if (rule.state.stateClassification === "unplannedDowntime") {
+          unplannedDowntime += durations[key];
+        } else {
+          operationalTime += durations[key]; // if no rule is found, add it to operationalTime
+        }
+      }
+    }
+
+    console.log("operationalTime", operationalTime);
+    console.log("plannedDowntime", plannedDowntime);
+    console.log("unplannedDowntime", unplannedDowntime);
+
+    availabilityBasedOnState =
+      operationalTime / (operationalTime + plannedDowntime + unplannedDowntime);
+
+    console.log("abs", availabilityBasedOnState);
+
+    console.log(durations);
+
+    calculateOee();
   }
 
-  function _processResponse(metrics: LoggingDataMetric[][]) {
+  async function _processResponse(metrics: LoggingDataMetric[][]) {
     const variableValues = metrics.map((x) => {
       const value = x[0]?.value?.getValue();
       return value !== undefined ? Number(value) : "no-data-in-period";
@@ -198,11 +268,17 @@
       },
       {}
     );
+  }
 
+  function calculateOee() {
     availability = _doCalculation(
       variableKeyValues,
       context.inputs.calculation?.availability?.formula
     );
+
+    if (availabilityBasedOnState) {
+      availability = availabilityBasedOnState;
+    }
 
     performance = _doCalculation(
       variableKeyValues,
@@ -233,6 +309,8 @@
     }
 
     oee = availability * quality * performance;
+
+    loading = false;
 
     if (!debugMode) {
       aGaugeService.setValue(formatPercentage(availability));
@@ -309,10 +387,17 @@
     bind:clientWidth={contentWidth}
     bind:clientHeight={contentHeight}
   >
+    {#if loading}
+      loading...
+    {/if}
+
     {#if debugMode && variableKeyValues}
       <div>
         <p>
           availability: {context.inputs.calculation?.availability?.formula} = {availability}
+        </p>
+        <p>
+          availabilityBasedOnState: {availabilityBasedOnState}
         </p>
         <p>
           performance: {context.inputs.calculation?.performance?.formula} = {performance}

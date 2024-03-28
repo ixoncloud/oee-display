@@ -10,23 +10,21 @@
     ComponentContextAggregatedMetricInput,
   } from "@ixon-cdk/types";
 
-  import type { Rule } from "./utils/rules";
-
   import { mapValueToStateRule } from "./utils/rules";
-
-  import { calculateDurationsInMilliseconds } from "./utils/state";
 
   type Variable = {
     name: string;
     metric: ComponentContextAggregatedMetricInput;
   };
+  type VariableKeyValues = { [key: string]: number };
 
-  import { GaugeService } from "./services/gauge.service";
   import { runResizeObserver } from "./utils/responsiveness";
-  import { formatPercentage } from "./utils/formatting";
+
   import { mapMetricInputToQuery } from "./utils/query";
 
   import { DataService } from "./services/data.service";
+  import { calculateDurationsInMilliseconds } from "./utils/state";
+  import { VisualizationService } from "./services/visualization";
 
   export let context: ComponentContext;
 
@@ -43,26 +41,21 @@
   let quality: number | undefined;
   let oee: number | undefined;
 
+  let debugMode = false;
+
+  let variableKeyValues: VariableKeyValues = {};
+
+  // visualization variables
   let aGaugeChartEl: HTMLDivElement;
   let pGaugeChartEl: HTMLDivElement;
   let qGaugeChartEl: HTMLDivElement;
   let oeeGaugeChartEl: HTMLDivElement;
-
-  let aGaugeService: GaugeService;
-  let pGaugeService: GaugeService;
-  let qGaugeService: GaugeService;
-  let oeeGaugeService: GaugeService;
-
   let hideAvailability = false;
   let hidePerformance = false;
   let hideQuality = false;
   let hideOee = false;
 
-  let debugMode = false;
-
-  type VariableKeyValues = { [key: string]: number };
-
-  let variableKeyValues: VariableKeyValues = {};
+  let visualizationService: VisualizationService;
 
   let contentWidth = 0;
   let contentHeight = 0;
@@ -70,47 +63,10 @@
   $: isNarrow = contentWidth < 600;
   $: isMedium = contentWidth < 1200;
   $: isShallow = contentHeight < 400;
-  $: onContext(context);
-
-  function onContext(context: ComponentContext) {
-    error = "";
-
-    if (!context) return;
-
-    const rules: { rule: Rule }[] = context?.inputs?.rules || [];
-
-    const availabilityRules = rules.filter(
-      (x) => x.rule.colorUsage === "availability"
-    );
-    const performanceRules = rules.filter(
-      (x) => x.rule.colorUsage === "performance"
-    );
-    const qualityRules = rules.filter((x) => x.rule.colorUsage === "quality");
-    const oeeRules = rules.filter((x) => x.rule.colorUsage === "oee");
-
-    if (!hideAvailability) {
-      aGaugeService = new GaugeService(
-        aGaugeChartEl,
-        "Availability",
-        availabilityRules
-      );
-    }
-    if (!hidePerformance) {
-      pGaugeService = new GaugeService(
-        pGaugeChartEl,
-        "Performance",
-        performanceRules
-      );
-    }
-    if (!hideQuality) {
-      qGaugeService = new GaugeService(qGaugeChartEl, "Quality", qualityRules);
-    }
-    if (!hideOee) {
-      oeeGaugeService = new GaugeService(oeeGaugeChartEl, "OEE", oeeRules);
-    }
-  }
 
   onMount(() => {
+    error = "";
+
     header = context ? context.inputs.header : undefined;
     debugMode = context?.inputs?.debugMode || false;
     hideAvailability =
@@ -119,40 +75,42 @@
     hideQuality = context?.inputs?.displayOptions?.hideQuality || false;
     hideOee = context?.inputs?.displayOptions?.hideOee || false;
 
+    visualizationService = new VisualizationService(
+      context,
+      aGaugeChartEl,
+      pGaugeChartEl,
+      qGaugeChartEl,
+      oeeGaugeChartEl,
+      hideAvailability,
+      hidePerformance,
+      hideQuality,
+      hideOee
+    );
+
     loggingDataClient = context.createLoggingDataClient();
 
     context.ontimerangechange = onTimeRangeChanged;
 
+    // Run the query once to get the initial data
     onTimeRangeChanged();
 
-    if (debugMode) {
-      return;
-    }
-
-    const resizeObserver = runResizeObserver(rootEl, () => {
-      tick().then(() => {
-        hideAvailability =
-          context?.inputs?.displayOptions?.hideAvailability || false;
-        hidePerformance =
-          context?.inputs?.displayOptions?.hidePerformance || false;
-        hideQuality = context?.inputs?.displayOptions?.hideQuality || false;
-        hideOee = context?.inputs?.displayOptions?.hideOee || false;
-
-        aGaugeService?.resize(isNarrow, isMedium, isShallow);
-        pGaugeService?.resize(isNarrow, isMedium, isShallow);
-        qGaugeService?.resize(isNarrow, isMedium, isShallow);
-        oeeGaugeService?.resize(isNarrow, isMedium, isShallow);
-      });
-    });
+    const resizeObserver = initResizeObserver();
 
     return () => {
       resizeObserver?.disconnect();
-      aGaugeService?.destroy();
-      pGaugeService?.destroy();
-      qGaugeService?.destroy();
-      oeeGaugeService?.destroy();
+      visualizationService.destroy();
     };
   });
+
+  function initResizeObserver() {
+    return runResizeObserver(rootEl, () => {
+      tick().then(() => {
+        if (!debugMode) {
+          visualizationService.resize(isNarrow, isMedium, isShallow);
+        }
+      });
+    });
+  }
 
   function onTimeRangeChanged() {
     loading = true;
@@ -313,10 +271,7 @@
     loading = false;
 
     if (!debugMode) {
-      aGaugeService.setValue(formatPercentage(availability));
-      pGaugeService.setValue(formatPercentage(performance));
-      qGaugeService.setValue(formatPercentage(quality));
-      oeeGaugeService.setValue(formatPercentage(oee));
+      visualizationService.setValues(availability, performance, quality, oee);
     }
   }
 

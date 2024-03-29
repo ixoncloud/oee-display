@@ -91,11 +91,7 @@
 
   function initResizeObserver() {
     return runResizeObserver(rootEl, () => {
-      tick().then(() => {
-        if (!debugMode) {
-          visualizationService.resize(isNarrow, isMedium, isShallow);
-        }
-      });
+      resize();
     });
   }
 
@@ -129,6 +125,15 @@
       );
     }
     loading = false;
+    resize();
+  }
+
+  function resize() {
+    tick().then(() => {
+      if (!debugMode) {
+        visualizationService.resize(isNarrow, isMedium, isShallow);
+      }
+    });
   }
 </script>
 

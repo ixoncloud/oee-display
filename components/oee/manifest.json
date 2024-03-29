@@ -1,6 +1,6 @@
 {
   "main": "ixon-se-oee.min.js",
-  "version": "9",
+  "version": "11",
   "sheetSettings": {
     "minCols": 1,
     "minRows": 2

@@ -1,6 +1,6 @@
 {
   "main": "ixon-se-oee.min.js",
-  "version": "11",
+  "version": "12",
   "sheetSettings": {
     "minCols": 1,
     "minRows": 2
@@ -53,7 +53,8 @@
             "key": "metric",
             "label": "Metric",
             "type": "AggregatedMetric",
-            "allowedTypes": ["int", "float"]
+            "allowedTypes": ["int", "float"],
+            "required": true
           }
         ]
       }

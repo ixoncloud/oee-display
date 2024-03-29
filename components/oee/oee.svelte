@@ -188,8 +188,12 @@
     console.log("plannedDowntime", plannedDowntime);
     console.log("unplannedDowntime", unplannedDowntime);
 
+    // availabilityBasedOnState =
+    //   (operationalTime + plannedDowntime) /
+    //   (operationalTime + plannedDowntime + unplannedDowntime);
+
     availabilityBasedOnState =
-      operationalTime / (operationalTime + plannedDowntime + unplannedDowntime);
+      operationalTime / (operationalTime + unplannedDowntime);
 
     console.log("abs", availabilityBasedOnState);
 

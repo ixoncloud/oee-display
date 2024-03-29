@@ -1,4 +1,7 @@
-import type { ComponentContext } from "@ixon-cdk/types";
+import type {
+  ComponentContext,
+  ComponentContextLiveMetricInput,
+} from "@ixon-cdk/types";
 
 type Agent = {
   publicId: string;
@@ -23,7 +26,7 @@ type Metric = {
   };
 };
 
-export class DataService {
+export class RawDataService {
   context;
   headers;
 
@@ -38,22 +41,17 @@ export class DataService {
     };
   }
 
-  async getAllRawMetrics(): Promise<{ time: number; value: any }[] | null> {
-    if (
-      !this.context.inputs.calculation.availability.stateBasedAvailability
-        .stateMetric
-    ) {
+  async getAllRawMetrics(
+    metric: ComponentContextLiveMetricInput
+  ): Promise<{ time: number; value: any }[] | null> {
+    if (!metric) {
       return null;
     }
 
-    const tagSlug =
-      this.context.inputs.calculation.availability.stateBasedAvailability.stateMetric.selector.split(
-        ".tag."
-      )[1];
-    const sourceSlug =
-      this.context.inputs.calculation.availability.stateBasedAvailability.stateMetric.selector
-        .split(".tag.")[0]
-        .split("Agent#selected:")[1];
+    const tagSlug = metric.selector.split(".tag.")[1];
+    const sourceSlug = metric.selector
+      .split(".tag.")[0]
+      .split("Agent#selected:")[1];
 
     const agent = await this._getAgent();
 
@@ -180,7 +178,7 @@ export class DataService {
     return new Date(milliSeconds).toISOString().split(".")[0] + "Z";
   }
 
-  private async _getAgent() {
+  private async _getAgent(): Promise<Agent> {
     let cancel: Function;
     return new Promise((resolve, reject) => {
       const client = this.context.createResourceDataClient();
@@ -191,7 +189,7 @@ export class DataService {
             if (cancel) {
               cancel();
             }
-            resolve(result.data);
+            resolve(result.data as Agent);
           } else {
             reject(new Error("Agent not found"));
           }

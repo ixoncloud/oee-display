@@ -148,40 +148,43 @@
       {/if}
     </div>
   {/if}
-  {#if $error}
-    <p>{$error}</p>
-  {/if}
-  {#if loading}
-    <p>loading...</p>
-  {/if}
 
   <div
     class="card-content"
     bind:clientWidth={contentWidth}
     bind:clientHeight={contentHeight}
   >
+    <div class="status-message">
+      {#if $error && !debugMode}
+        <p>{$error}</p>
+      {/if}
+      {#if loading}
+        <p>Loading...</p>
+      {/if}
+    </div>
+
     {#if debugMode && !loading}
       <div class="json-debug">
         <pre>{debugService.printDebugInfoJson()}</pre>
       </div>
     {:else}
       {#if !hideAvailability}
-        <div class="chart-wrapper">
+        <div class={loading || $error ? "blur chart-wrapper" : "chart-wrapper"}>
           <div class="chart" bind:this={aGaugeChartEl} />
         </div>
       {/if}
       {#if !hidePerformance}
-        <div class="chart-wrapper">
+        <div class={loading || $error ? "blur chart-wrapper" : "chart-wrapper"}>
           <div class="chart" bind:this={pGaugeChartEl} />
         </div>
       {/if}
       {#if !hideQuality}
-        <div class="chart-wrapper">
+        <div class={loading || $error ? "blur chart-wrapper" : "chart-wrapper"}>
           <div class="chart" bind:this={qGaugeChartEl} />
         </div>
       {/if}
       {#if !hideOee}
-        <div class="chart-wrapper">
+        <div class={loading || $error ? "blur chart-wrapper" : "chart-wrapper"}>
           <div class="chart" bind:this={oeeGaugeChartEl} />
         </div>
       {/if}
@@ -199,6 +202,11 @@
     justify-content: space-between;
     align-items: center;
   }
+
+  .blur {
+    filter: blur(8px);
+  }
+
   .chart-wrapper {
     flex: 1;
     -webkit-touch-callout: none;
@@ -217,6 +225,16 @@
 
     top: 0; /* Position at the top of .chart-wrapper */
     left: 0; /* Position at the left of .chart-wrapper */
+  }
+
+  .status-message {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 2; // Ensure it's above the charts
   }
 
   .json-debug {

@@ -47,7 +47,9 @@ export function calculateOee(
   }
 
   if (availability > 1 || performance > 1 || quality > 1) {
-    error.set("only works with decimal calculation results where 1 is 100%");
+    error.set(
+      "only works with decimal calculation results where 1 is 100% and thus the maximum result"
+    );
     return { oee, availability, performance, quality };
   }
 

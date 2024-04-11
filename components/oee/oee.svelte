@@ -1,59 +1,47 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
 
-  import { Parser } from "expr-eval";
+  import { AggregatedDataService } from "./services/aggregated-data.service";
 
-  import type {
-    ComponentContext,
-    LoggingDataClient,
-    LoggingDataMetric,
-    ComponentContextAggregatedMetricInput,
-  } from "@ixon-cdk/types";
+  import { calculateOee } from "./utils/oee";
 
-  import type { Rule } from "./utils/rules";
+  import { getStateBasedAvailability } from "./utils/state-based-availability";
 
-  type Variable = {
-    name: string;
-    metric: ComponentContextAggregatedMetricInput;
-  };
+  import type { ComponentContext } from "@ixon-cdk/types";
 
-  import { GaugeService } from "./services/gauge.service";
+  import type { VariableKeyValues } from "./types";
+
   import { runResizeObserver } from "./utils/responsiveness";
-  import { formatPercentage } from "./utils/formatting";
-  import { mapMetricInputToQuery } from "./utils/query";
+
+  import { VisualizationService } from "./services/visualization";
+
+  import { DebugService } from "./services/debug.service";
 
   export let context: ComponentContext;
 
-  let loggingDataClient: LoggingDataClient;
-  let header: { title: string; subtitle: string };
-  let error = "";
-  let rootEl: HTMLDivElement;
-  let cancelQuery: (() => void) | void | undefined;
-  let availability: number | undefined;
-  let performance: number | undefined;
-  let quality: number | undefined;
-  let oee: number | undefined;
+  import { writable } from "svelte/store";
 
+  let debugMode = false;
+
+  let aggregatedDataService: AggregatedDataService;
+  let debugService: DebugService;
+  let header: { title: string; subtitle: string };
+
+  let rootEl: HTMLDivElement;
+
+  let loading = true;
+
+  // visualization variables
   let aGaugeChartEl: HTMLDivElement;
   let pGaugeChartEl: HTMLDivElement;
   let qGaugeChartEl: HTMLDivElement;
   let oeeGaugeChartEl: HTMLDivElement;
-
-  let aGaugeService: GaugeService;
-  let pGaugeService: GaugeService;
-  let qGaugeService: GaugeService;
-  let oeeGaugeService: GaugeService;
-
   let hideAvailability = false;
   let hidePerformance = false;
   let hideQuality = false;
   let hideOee = false;
 
-  let debugMode = false;
-
-  type VariableKeyValues = { [key: string]: number };
-
-  let variableKeyValues: VariableKeyValues = {};
+  let visualizationService: VisualizationService;
 
   let contentWidth = 0;
   let contentHeight = 0;
@@ -61,47 +49,12 @@
   $: isNarrow = contentWidth < 600;
   $: isMedium = contentWidth < 1200;
   $: isShallow = contentHeight < 400;
-  $: onContext(context);
 
-  function onContext(context: ComponentContext) {
-    error = "";
-
-    if (!context) return;
-
-    const rules: { rule: Rule }[] = context?.inputs?.rules || [];
-
-    const availabilityRules = rules.filter(
-      (x) => x.rule.colorUsage === "availability"
-    );
-    const performanceRules = rules.filter(
-      (x) => x.rule.colorUsage === "performance"
-    );
-    const qualityRules = rules.filter((x) => x.rule.colorUsage === "quality");
-    const oeeRules = rules.filter((x) => x.rule.colorUsage === "oee");
-
-    if (!hideAvailability) {
-      aGaugeService = new GaugeService(
-        aGaugeChartEl,
-        "Availability",
-        availabilityRules
-      );
-    }
-    if (!hidePerformance) {
-      pGaugeService = new GaugeService(
-        pGaugeChartEl,
-        "Performance",
-        performanceRules
-      );
-    }
-    if (!hideQuality) {
-      qGaugeService = new GaugeService(qGaugeChartEl, "Quality", qualityRules);
-    }
-    if (!hideOee) {
-      oeeGaugeService = new GaugeService(oeeGaugeChartEl, "OEE", oeeRules);
-    }
-  }
+  const error = writable("");
 
   onMount(() => {
+    error.set("");
+
     header = context ? context.inputs.header : undefined;
     debugMode = context?.inputs?.debugMode || false;
     hideAvailability =
@@ -110,186 +63,81 @@
     hideQuality = context?.inputs?.displayOptions?.hideQuality || false;
     hideOee = context?.inputs?.displayOptions?.hideOee || false;
 
-    loggingDataClient = context.createLoggingDataClient();
+    visualizationService = new VisualizationService(
+      context,
+      aGaugeChartEl,
+      pGaugeChartEl,
+      qGaugeChartEl,
+      oeeGaugeChartEl,
+      hideAvailability,
+      hidePerformance,
+      hideQuality,
+      hideOee
+    );
+
+    aggregatedDataService = new AggregatedDataService(context, error);
+    debugService = new DebugService(context);
 
     context.ontimerangechange = onTimeRangeChanged;
 
+    // Run the query once to get the initial data
     onTimeRangeChanged();
 
-    if (debugMode) {
-      return;
-    }
-
-    const resizeObserver = runResizeObserver(rootEl, () => {
-      tick().then(() => {
-        hideAvailability =
-          context?.inputs?.displayOptions?.hideAvailability || false;
-        hidePerformance =
-          context?.inputs?.displayOptions?.hidePerformance || false;
-        hideQuality = context?.inputs?.displayOptions?.hideQuality || false;
-        hideOee = context?.inputs?.displayOptions?.hideOee || false;
-
-        aGaugeService?.resize(isNarrow, isMedium, isShallow);
-        pGaugeService?.resize(isNarrow, isMedium, isShallow);
-        qGaugeService?.resize(isNarrow, isMedium, isShallow);
-        oeeGaugeService?.resize(isNarrow, isMedium, isShallow);
-      });
-    });
+    const resizeObserver = initResizeObserver();
 
     return () => {
       resizeObserver?.disconnect();
-      aGaugeService?.destroy();
-      pGaugeService?.destroy();
-      qGaugeService?.destroy();
-      oeeGaugeService?.destroy();
+      visualizationService.destroy();
     };
   });
 
-  function onTimeRangeChanged(): void {
-    _runChartQuery();
-  }
-
-  function _runChartQuery(): void {
-    if (cancelQuery) {
-      cancelQuery();
-      cancelQuery = undefined;
-    }
-    cancelQuery = _chartQuery();
-  }
-
-  function _chartQuery() {
-    const variables = _getVariables();
-
-    const queries = variables.map((x: { variable: Variable }) => {
-      return {
-        ...mapMetricInputToQuery(x?.variable?.metric),
-        limit: 1,
-      };
+  function initResizeObserver() {
+    return runResizeObserver(rootEl, () => {
+      resize();
     });
-
-    cancelQuery = loggingDataClient.query(queries, _processResponse);
   }
 
-  function _processResponse(metrics: LoggingDataMetric[][]) {
-    const variableValues = metrics.map((x) => {
-      const value = x[0]?.value?.getValue();
-      return value !== undefined ? Number(value) : "no-data-in-period";
-    });
+  async function onTimeRangeChanged() {
+    error.set("");
+    loading = true;
+    const variableKeyValues =
+      await aggregatedDataService.getVariableKeyValues();
+    const availabilityBasedOnState = await getStateBasedAvailability(context);
 
-    const noDataInPeriod =
-      variableValues.find((x) => x === "no-data-in-period") !== undefined;
-    if (noDataInPeriod) {
-      error = "No data available in selected time period";
-      return;
-    }
-
-    const notANumber =
-      variableValues.find((x) => Number.isNaN(x)) !== undefined;
-    if (notANumber) {
-      error = "Only works with number variables";
-      return;
-    }
-
-    const variableNames = _getVariableNames();
-
-    variableKeyValues = variableNames.reduce(
-      (accumulator: any, value: string, index: number) => {
-        return { ...accumulator, [value]: variableValues[index] };
-      },
-      {}
-    );
-
-    availability = _doCalculation(
+    const calculationResult = calculateOee(
+      context,
+      error,
       variableKeyValues,
-      context.inputs.calculation?.availability?.formula
+      availabilityBasedOnState
     );
-
-    performance = _doCalculation(
-      variableKeyValues,
-      context.inputs.calculation?.performance?.formula
-    );
-
-    quality = _doCalculation(
-      variableKeyValues,
-      context.inputs.calculation?.quality?.formula
-    );
-
-    if (
-      availability === undefined ||
-      performance === undefined ||
-      quality === undefined
-    ) {
-      return;
-    }
-
-    if (availability > 1 || performance > 1 || quality > 1) {
-      error = "only works with decimal calculation results where 1 is 100%";
-      return;
-    }
-
-    if (availability < 0 || performance < 0 || quality < 0) {
-      error = "only works with positive calculation results";
-      return;
-    }
-
-    oee = availability * quality * performance;
 
     if (!debugMode) {
-      aGaugeService.setValue(formatPercentage(availability));
-      pGaugeService.setValue(formatPercentage(performance));
-      qGaugeService.setValue(formatPercentage(quality));
-      oeeGaugeService.setValue(formatPercentage(oee));
+      visualizationService.setValues(
+        calculationResult.availability || 0,
+        calculationResult.performance || 0,
+        calculationResult.quality || 0,
+        calculationResult.oee || 0
+      );
+    } else {
+      debugService.setValues(
+        calculationResult.availability,
+        availabilityBasedOnState,
+        calculationResult.performance,
+        calculationResult.quality,
+        calculationResult.oee,
+        variableKeyValues
+      );
     }
+    loading = false;
+    resize();
   }
 
-  function _getVariables() {
-    const variables = context.inputs.variables;
-
-    const variableNames = variables.map(
-      (x: { variable: Variable }) => x?.variable?.name
-    );
-    const hasDuplicates = (variableNames: string[]) =>
-      variableNames.length !== new Set(variableNames).size;
-
-    if (hasDuplicates(variableNames)) {
-      error = "Please use unique variable names";
-      return;
-    }
-
-    return variables;
-  }
-
-  function _getVariableNames() {
-    const variables = context.inputs.variables;
-
-    const variableNames = variables.map(
-      (x: { variable: Variable }) => x?.variable?.name
-    );
-    const hasDuplicates = (variableNames: string[]) =>
-      variableNames.length !== new Set(variableNames).size;
-
-    if (hasDuplicates(variableNames)) {
-      error = "Please use unique variable names";
-      return;
-    }
-
-    return variableNames;
-  }
-
-  function _doCalculation(
-    variableKeyValues: VariableKeyValues,
-    formula?: string
-  ) {
-    if (!formula) {
-      formula = "1";
-    }
-    try {
-      const calculatedValue = Parser.evaluate(formula, variableKeyValues);
-      return calculatedValue;
-    } catch {
-      error =
-        "Invalid formula, example: x / y * 100. Make sure all your variables are defined";
-    }
+  function resize() {
+    tick().then(() => {
+      if (!debugMode) {
+        visualizationService.resize(isNarrow, isMedium, isShallow);
+      }
+    });
   }
 </script>
 
@@ -304,53 +152,43 @@
       {/if}
     </div>
   {/if}
+
   <div
     class="card-content"
     bind:clientWidth={contentWidth}
     bind:clientHeight={contentHeight}
   >
-    {#if debugMode && variableKeyValues}
-      <div>
-        <p>
-          availability: {context.inputs.calculation?.availability?.formula} = {availability}
-        </p>
-        <p>
-          performance: {context.inputs.calculation?.performance?.formula} = {performance}
-        </p>
-        <p>
-          quality: {context.inputs.calculation?.quality?.formula} = {quality}
-        </p>
-        <p>
-          oee = {oee}
-        </p>
-        <p>variables:</p>
-        {#each Object.entries(variableKeyValues) as [k, v]}
-          <p>{k} = {v}</p>
-        {/each}
-        <p />
-      </div>
-    {:else if error}
-      <div>
-        <p>{error}</p>
+    <div class="status-message">
+      {#if $error && !debugMode}
+        <p>{$error}</p>
+      {/if}
+      {#if loading}
+        <p>Loading...</p>
+      {/if}
+    </div>
+
+    {#if debugMode && !loading}
+      <div class="json-debug">
+        <pre>{debugService.printDebugInfoJson()}</pre>
       </div>
     {:else}
       {#if !hideAvailability}
-        <div class="chart-wrapper">
+        <div class={loading || $error ? "blur chart-wrapper" : "chart-wrapper"}>
           <div class="chart" bind:this={aGaugeChartEl} />
         </div>
       {/if}
       {#if !hidePerformance}
-        <div class="chart-wrapper">
+        <div class={loading || $error ? "blur chart-wrapper" : "chart-wrapper"}>
           <div class="chart" bind:this={pGaugeChartEl} />
         </div>
       {/if}
       {#if !hideQuality}
-        <div class="chart-wrapper">
+        <div class={loading || $error ? "blur chart-wrapper" : "chart-wrapper"}>
           <div class="chart" bind:this={qGaugeChartEl} />
         </div>
       {/if}
       {#if !hideOee}
-        <div class="chart-wrapper">
+        <div class={loading || $error ? "blur chart-wrapper" : "chart-wrapper"}>
           <div class="chart" bind:this={oeeGaugeChartEl} />
         </div>
       {/if}
@@ -368,6 +206,11 @@
     justify-content: space-between;
     align-items: center;
   }
+
+  .blur {
+    filter: blur(8px);
+  }
+
   .chart-wrapper {
     flex: 1;
     -webkit-touch-callout: none;
@@ -386,5 +229,23 @@
 
     top: 0; /* Position at the top of .chart-wrapper */
     left: 0; /* Position at the left of .chart-wrapper */
+  }
+
+  .status-message {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 2; // Ensure it's above the charts
+  }
+
+  .json-debug {
+    white-space: pre-wrap; /* Ensures formatting is preserved in HTML */
+    background-color: #f5f5f5; /* Light grey background */
+    padding: 10px; /* Padding around the text */
+    border-radius: 4px; /* Rounded corners for the container */
+    overflow-x: auto; /* Adds a horizontal scrollbar if content is too wide */
   }
 </style>

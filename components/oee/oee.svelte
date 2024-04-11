@@ -3,8 +3,6 @@
 
   import { AggregatedDataService } from "./services/aggregated-data.service";
 
-  import { error } from "./stores";
-
   import { calculateOee } from "./utils/oee";
 
   import { getStateBasedAvailability } from "./utils/state-based-availability";
@@ -20,6 +18,8 @@
   import { DebugService } from "./services/debug.service";
 
   export let context: ComponentContext;
+
+  import { writable } from "svelte/store";
 
   let debugMode = false;
 
@@ -50,6 +50,8 @@
   $: isMedium = contentWidth < 1200;
   $: isShallow = contentHeight < 400;
 
+  const error = writable("");
+
   onMount(() => {
     error.set("");
 
@@ -73,7 +75,7 @@
       hideOee
     );
 
-    aggregatedDataService = new AggregatedDataService(context);
+    aggregatedDataService = new AggregatedDataService(context, error);
     debugService = new DebugService(context);
 
     context.ontimerangechange = onTimeRangeChanged;
@@ -96,6 +98,7 @@
   }
 
   async function onTimeRangeChanged() {
+    error.set("");
     loading = true;
     const variableKeyValues =
       await aggregatedDataService.getVariableKeyValues();
@@ -103,6 +106,7 @@
 
     const calculationResult = calculateOee(
       context,
+      error,
       variableKeyValues,
       availabilityBasedOnState
     );

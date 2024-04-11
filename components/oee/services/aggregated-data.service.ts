@@ -6,17 +6,19 @@ import type {
 
 import { mapMetricInputToQuery } from "../utils/query";
 
-import { error } from "../stores";
+import type { Writable } from "svelte/store";
 
 import type { Variable, VariableKeyValues } from "../types";
 
 export class AggregatedDataService {
   private context: ComponentContext;
+  private error: Writable<string>;
   private cancelQuery: (() => void) | void | undefined;
   private loggingDataClient: LoggingDataClient;
 
-  constructor(context: ComponentContext) {
+  constructor(context: ComponentContext, error: Writable<string>) {
     this.context = context;
+    this.error = error;
     this.loggingDataClient = context.createLoggingDataClient();
   }
 
@@ -60,14 +62,14 @@ export class AggregatedDataService {
     const noDataInPeriod =
       variableValues.find((x) => x === "no-data-in-period") !== undefined;
     if (noDataInPeriod) {
-      error.set("No data available in selected time period");
+      this.error.set("No data available in selected time period");
       return;
     }
 
     const notANumber =
       variableValues.find((x) => Number.isNaN(x)) !== undefined;
     if (notANumber) {
-      error.set("Only works with number variables");
+      this.error.set("Only works with number variables");
       return;
     }
 
@@ -92,7 +94,7 @@ export class AggregatedDataService {
       variableNames.length !== new Set(variableNames).size;
 
     if (hasDuplicates(variableNames)) {
-      error.set("Please use unique variable names");
+      this.error.set("Please use unique variable names");
       return;
     }
 
@@ -109,7 +111,7 @@ export class AggregatedDataService {
       variableNames.length !== new Set(variableNames).size;
 
     if (hasDuplicates(variableNames)) {
-      error.set("Please use unique variable names");
+      this.error.set("Please use unique variable names");
       return;
     }
 

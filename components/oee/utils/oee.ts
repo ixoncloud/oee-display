@@ -4,10 +4,13 @@ import type { ComponentContext } from "@ixon-cdk/types";
 
 import { error } from "../stores";
 
+import type { Writable } from "svelte/store";
+
 import type { VariableKeyValues } from "../types";
 
 export function calculateOee(
   context: ComponentContext,
+  error: Writable<string>,
   variableKeyValues: VariableKeyValues,
   availabilityBasedOnState?: number
 ): {
@@ -54,7 +57,9 @@ export function calculateOee(
   }
 
   if (availability < 0 || performance < 0 || quality < 0) {
-    error.set("only works with positive calculation results");
+    error.set(
+      "only works with positive calculation results, as 0 is the minimum value"
+    );
     return { oee, availability, performance, quality };
   }
 
